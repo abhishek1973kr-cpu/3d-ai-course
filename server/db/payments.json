@@ -1,0 +1,153 @@
+{
+  "students": [
+    {
+      "id": "usr-8921",
+      "studentId": "STU-2026-8921",
+      "name": "Rohan Varma",
+      "email": "rohan.ai@3dstudio.academy",
+      "phone": "+91 98765 43210",
+      "city": "Bengaluru",
+      "state": "Karnataka",
+      "isPaid": true,
+      "amountPaid": 9,
+      "currency": "INR",
+      "orderId": "order_Oq7Yt8K1m9Z4L2",
+      "paymentId": "pay_Oq7Z9a3B4C5D6E",
+      "invoiceNumber": "INV-3DAI-2026-001",
+      "enrolledAt": "2026-11-01T10:30:00.000Z",
+      "status": "ACTIVE",
+      "role": "student"
+    },
+    {
+      "id": "usr-8922",
+      "studentId": "STU-2026-8922",
+      "name": "Ananya Sharma",
+      "email": "ananya.vfx@gmail.com",
+      "phone": "+91 98111 22334",
+      "city": "Mumbai",
+      "state": "Maharashtra",
+      "isPaid": true,
+      "amountPaid": 9,
+      "currency": "INR",
+      "orderId": "order_P18Xm9K2n0A5M3",
+      "paymentId": "pay_P18Y0b4C5D6E7F",
+      "invoiceNumber": "INV-3DAI-2026-002",
+      "enrolledAt": "2026-11-02T14:15:00.000Z",
+      "status": "ACTIVE",
+      "role": "student"
+    },
+    {
+      "id": "usr-8923",
+      "studentId": "STU-2026-8923",
+      "name": "Vikramaditya Rathore",
+      "email": "vikram.ai.creatives@yahoo.com",
+      "phone": "+91 97234 56789",
+      "city": "Jaipur",
+      "state": "Rajasthan",
+      "isPaid": true,
+      "amountPaid": 9,
+      "currency": "INR",
+      "orderId": "order_Q29Yn0L3o1B6N4",
+      "paymentId": "pay_Q29Z1c5D6E7F8G",
+      "invoiceNumber": "INV-3DAI-2026-003",
+      "enrolledAt": "2026-11-03T09:45:00.000Z",
+      "status": "ACTIVE",
+      "role": "student"
+    },
+    {
+      "id": "usr-1723",
+      "studentId": "STU-2026-2890",
+      "name": "Aarav Patel",
+      "email": "aarav.patel@gmail.com",
+      "phone": "9876543210",
+      "city": "Ahmedabad",
+      "state": "Gujarat",
+      "isPaid": true,
+      "amountPaid": 9,
+      "currency": "INR",
+      "orderId": "order_1793895789372_68ABB773",
+      "paymentId": "pay_TEST998877",
+      "invoiceNumber": "INV-3DAI-2026-004",
+      "enrolledAt": "2026-11-05T16:23:31.723Z",
+      "status": "ACTIVE",
+      "role": "student"
+    }
+  ],
+  "orders": [
+    {
+      "orderId": "order_Oq7Yt8K1m9Z4L2",
+      "studentId": "STU-2026-8921",
+      "studentName": "Rohan Varma",
+      "email": "rohan.ai@3dstudio.academy",
+      "phone": "+91 98765 43210",
+      "amount": 900,
+      "amountInRupees": 9,
+      "currency": "INR",
+      "status": "PAID",
+      "paymentId": "pay_Oq7Z9a3B4C5D6E",
+      "createdAt": "2026-11-01T10:28:00.000Z",
+      "paidAt": "2026-11-01T10:30:00.000Z"
+    },
+    {
+      "orderId": "order_P18Xm9K2n0A5M3",
+      "studentId": "STU-2026-8922",
+      "studentName": "Ananya Sharma",
+      "email": "ananya.vfx@gmail.com",
+      "phone": "+91 98111 22334",
+      "amount": 900,
+      "amountInRupees": 9,
+      "currency": "INR",
+      "status": "PAID",
+      "paymentId": "pay_P18Y0b4C5D6E7F",
+      "createdAt": "2026-11-02T14:12:00.000Z",
+      "paidAt": "2026-11-02T14:15:00.000Z"
+    },
+    {
+      "orderId": "order_Q29Yn0L3o1B6N4",
+      "studentId": "STU-2026-8923",
+      "studentName": "Vikramaditya Rathore",
+      "email": "vikram.ai.creatives@yahoo.com",
+      "phone": "+91 97234 56789",
+      "amount": 900,
+      "amountInRupees": 9,
+      "currency": "INR",
+      "status": "PAID",
+      "paymentId": "pay_Q29Z1c5D6E7F8G",
+      "createdAt": "2026-11-03T09:42:00.000Z",
+      "paidAt": "2026-11-03T09:45:00.000Z"
+    },
+    {
+      "orderId": "order_1793895789372_68ABB773",
+      "studentId": "STU-2026-2890",
+      "studentName": "Aarav Patel",
+      "email": "aarav.patel@gmail.com",
+      "phone": "9876543210",
+      "city": "Ahmedabad",
+      "state": "Gujarat",
+      "amount": 900,
+      "amountInRupees": 9,
+      "currency": "INR",
+      "status": "PAID",
+      "createdAt": "2026-11-05T16:23:09.372Z",
+      "paymentId": "pay_TEST998877",
+      "paidAt": "2026-11-05T16:23:31.723Z"
+    }
+  ],
+  "failedAttempts": [
+    {
+      "orderId": "order_FAIL_TEST_01",
+      "email": "test.drop@example.com",
+      "phone": "+91 99999 00000",
+      "reason": "Customer cancelled payment window at UPI prompt",
+      "createdAt": "2026-11-04T16:20:00.000Z"
+    },
+    {
+      "orderId": "order_FAKE123",
+      "paymentId": "pay_FAKE456",
+      "email": "",
+      "phone": "",
+      "reason": "Cryptographic signature mismatch",
+      "attemptedAt": "2026-11-05T16:24:19.204Z"
+    }
+  ]
+}
