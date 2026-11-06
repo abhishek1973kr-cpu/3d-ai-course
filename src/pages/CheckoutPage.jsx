@@ -122,8 +122,8 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
       }, 'Create Order');
 
       // Validate order data integrity
-      if (!orderResult?.orderId || !orderResult?.amount) {
-        throw new Error('Payment server did not return a valid Order ID. Please retry.');
+      if (!orderResult?.orderId || !orderResult.orderId.startsWith('order_')) {
+        throw new Error(orderResult?.error || 'Payment server did not return a valid Razorpay Order ID. Please retry.');
       }
 
       // If user already paid, bypass directly
@@ -142,7 +142,7 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
           currency: orderResult.currency || 'INR',
           name: '3D AI STUDIO ACADEMY',
           description: 'Complete 3D AI Video Masterclass (Lifetime Access)',
-          order_id: orderResult.isRazorpayOrder ? orderResult.orderId : undefined,
+          order_id: orderResult.orderId, // Official Razorpay Order ID (starts with order_)
           prefill: {
             name: formData.name,
             email: formData.email,

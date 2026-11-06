@@ -75,7 +75,7 @@ function writeDb(data) {
 }
 
 /**
- * 1. Create Payment Order for ₹9
+ * 1. Create Payment Order for ₹9 using official Razorpay Orders API
  */
 export async function createPaymentOrder(registrationData) {
   const { name, email, phone, password, city, state } = registrationData;
@@ -94,6 +94,12 @@ export async function createPaymentOrder(registrationData) {
     throw new Error('Please enter a valid 10-digit mobile number.');
   }
 
+  // Ensure Razorpay credentials are present
+  if (!RAZORPAY_CONFIG.keyId || !RAZORPAY_CONFIG.keySecret) {
+    console.error('[Razorpay Config Error] Missing Key ID or Key Secret in environment configuration.');
+    throw new Error('Payment gateway configuration error: Razorpay API keys are missing on server.');
+  }
+
   const db = readDb();
 
   // Check if student is already enrolled and paid
@@ -103,63 +109,85 @@ export async function createPaymentOrder(registrationData) {
 
   if (existingPaidStudent) {
     return {
+      success: true,
       alreadyEnrolled: true,
       message: 'You are already enrolled with lifetime access! Proceeding to classroom...',
       student: existingPaidStudent
     };
   }
 
-  // Generate unique IDs
-  const orderUnique = crypto.randomBytes(4).toString('hex').toUpperCase();
-  const orderId = `order_${Date.now()}_${orderUnique}`;
+  // Unique student ID and clean receipt (max 40 chars for Razorpay API requirement)
   const studentId = `STU-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+  const receipt = `rcpt_${studentId}_${Date.now().toString().slice(-4)}`;
 
-  let razorpayOrder = null;
+  console.log(`[Payment Initiation] Student: ${studentId} | Email: ${cleanEmail} | Amount: ₹${COURSE_PAYMENT_CONFIG.amountRupees} (${COURSE_PAYMENT_CONFIG.amountPaise} paise)`);
 
-  // If live or configured real Razorpay credentials exist, call Razorpay REST API
-  if (RAZORPAY_CONFIG.isLive) {
-    try {
-      const auth = Buffer.from(`${RAZORPAY_CONFIG.keyId}:${RAZORPAY_CONFIG.keySecret}`).toString('base64');
-      const res = await fetch('https://api.razorpay.com/v1/orders', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          amount: COURSE_PAYMENT_CONFIG.amountPaise,
-          currency: COURSE_PAYMENT_CONFIG.currency,
-          receipt: `rcpt_${studentId}`,
-          notes: {
-            studentName: name.trim(),
-            email: cleanEmail,
-            phone: cleanPhone,
-            course: COURSE_PAYMENT_CONFIG.courseTitle
-          }
-        })
-      });
-      if (res.ok) {
-        razorpayOrder = await res.json();
-      }
-    } catch (apiErr) {
-      console.warn('Razorpay Live API order fallback to local verified order:', apiErr.message);
+  // Call official Razorpay Orders REST API
+  const auth = Buffer.from(`${RAZORPAY_CONFIG.keyId}:${RAZORPAY_CONFIG.keySecret}`).toString('base64');
+  
+  const orderPayload = {
+    amount: COURSE_PAYMENT_CONFIG.amountPaise, // 900 paise = ₹9.00
+    currency: COURSE_PAYMENT_CONFIG.currency, // 'INR'
+    receipt: receipt,
+    payment_capture: 1, // Auto-capture payment upon authorization
+    notes: {
+      studentName: name.trim().slice(0, 50),
+      email: cleanEmail.slice(0, 50),
+      phone: cleanPhone.slice(0, 15),
+      course: '3D AI Video Masterclass'
     }
+  };
+
+  let razorpayOrder;
+  try {
+    const res = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(orderPayload)
+    });
+
+    const resData = await res.json().catch(() => ({}));
+    console.log(`[Razorpay Orders API] Response HTTP Status: ${res.status} ${res.statusText}`);
+
+    if (!res.ok) {
+      const errCode = resData.error?.code || `HTTP_${res.status}`;
+      const errDesc = resData.error?.description || resData.error?.message || 'Razorpay order creation rejected.';
+      console.error(`[Razorpay Order Error] Status: ${res.status} | Code: ${errCode} | Description: ${errDesc}`);
+      throw new Error(`Razorpay Error (${errCode}): ${errDesc}`);
+    }
+
+    if (!resData.id || !resData.id.startsWith('order_')) {
+      console.error('[Razorpay Order Error] Missing order ID in response:', resData);
+      throw new Error('Razorpay API did not return a valid order ID.');
+    }
+
+    razorpayOrder = resData;
+    console.log(`[Razorpay Order Created] Order ID: ${razorpayOrder.id} | Status: ${razorpayOrder.status} | Amount: ${razorpayOrder.amount} ${razorpayOrder.currency}`);
+  } catch (apiErr) {
+    if (apiErr.message.includes('Razorpay Error')) {
+      throw apiErr;
+    }
+    console.error('[Razorpay Connection Error]:', apiErr.message);
+    throw new Error(`Failed to connect to Razorpay payment servers: ${apiErr.message}`);
   }
 
-  const finalOrderId = razorpayOrder ? razorpayOrder.id : orderId;
-
+  // Record order in local DB
   const newOrder = {
-    orderId: finalOrderId,
+    orderId: razorpayOrder.id,
     studentId,
     studentName: name.trim(),
     email: cleanEmail,
-    phone: phone.trim(),
+    phone: cleanPhone,
     city: (city || '').trim(),
     state: (state || '').trim(),
-    amount: COURSE_PAYMENT_CONFIG.amountPaise,
+    amount: razorpayOrder.amount,
     amountInRupees: COURSE_PAYMENT_CONFIG.amountRupees,
-    currency: COURSE_PAYMENT_CONFIG.currency,
-    status: 'CREATED',
+    currency: razorpayOrder.currency,
+    receipt: receipt,
+    status: razorpayOrder.status || 'created',
     createdAt: new Date().toISOString()
   };
 
@@ -167,17 +195,18 @@ export async function createPaymentOrder(registrationData) {
   writeDb(db);
 
   return {
+    success: true,
     alreadyEnrolled: false,
-    orderId: finalOrderId,
-    isRazorpayOrder: !!razorpayOrder,
-    amount: COURSE_PAYMENT_CONFIG.amountPaise,
+    orderId: razorpayOrder.id,
+    amount: razorpayOrder.amount,
     amountInRupees: COURSE_PAYMENT_CONFIG.amountRupees,
-    currency: COURSE_PAYMENT_CONFIG.currency,
+    currency: razorpayOrder.currency,
+    status: razorpayOrder.status,
     keyId: RAZORPAY_CONFIG.keyId,
     studentId,
     studentName: name.trim(),
     email: cleanEmail,
-    phone: phone.trim(),
+    phone: cleanPhone,
     city: (city || '').trim(),
     state: (state || '').trim()
   };
