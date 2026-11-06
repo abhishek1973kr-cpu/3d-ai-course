@@ -24,14 +24,22 @@ import {
 export default function CheckoutPage({ onNavigate, initialForm = null }) {
   const { unlockCourseForStudent, showToast, currentUser } = useCourse();
 
-  // Student Registration Form State
-  const [formData, setFormData] = useState({
-    name: initialForm?.name || currentUser?.name || '',
-    email: initialForm?.email || currentUser?.email || '',
-    phone: initialForm?.phone || currentUser?.phone || '',
-    password: initialForm?.password || '',
-    city: initialForm?.city || '',
-    state: initialForm?.state || ''
+  // Student Registration Form State with LocalStorage memory
+  const [formData, setFormData] = useState(() => {
+    let savedData = {};
+    try {
+      const saved = localStorage.getItem('3dai_checkout_form');
+      if (saved) savedData = JSON.parse(saved);
+    } catch (e) {}
+
+    return {
+      name: initialForm?.name || currentUser?.name || savedData.name || '',
+      email: initialForm?.email || currentUser?.email || savedData.email || '',
+      phone: initialForm?.phone || currentUser?.phone || savedData.phone || '',
+      password: initialForm?.password || savedData.password || '',
+      city: initialForm?.city || savedData.city || '',
+      state: initialForm?.state || savedData.state || ''
+    };
   });
 
   const [formErrors, setFormErrors] = useState({});
@@ -40,7 +48,7 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('upi'); // 'upi', 'card', 'netbanking'
   const [upiId, setUpiId] = useState('');
 
-  // Validate form
+  // Validate form (Ensure Name, Email, Phone are valid; auto-generate password if omitted)
   const validateForm = () => {
     const errors = {};
     if (!formData.name.trim() || formData.name.trim().length < 2) {
@@ -54,15 +62,18 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
     if (cleanPhone.length < 10) {
       errors.phone = 'Please enter a valid 10-digit mobile number.';
     }
-    if (!formData.password || formData.password.length < 6) {
-      errors.password = 'Password must be at least 6 characters.';
-    }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
   const handleInputChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData(prev => {
+      const next = { ...prev, [field]: value };
+      try {
+        localStorage.setItem('3dai_checkout_form', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
     if (formErrors[field]) {
       setFormErrors(prev => ({ ...prev, [field]: null }));
     }
@@ -104,21 +115,30 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
   };
 
   // Step 1: Initiate Order Creation on Backend
-  const handleInitiatePayment = async (e) => {
-    e.preventDefault();
+  const handleInitiatePayment = async (e, preferredMode = 'gateway') => {
+    if (e && e.preventDefault) e.preventDefault();
     if (!validateForm()) {
-      showToast('Please fix the errors in the registration form.', 'warning');
+      showToast('Please fill in your Name, Email, and Mobile Number.', 'warning');
       return;
     }
 
     setIsProcessing(true);
 
     try {
+      // Auto-assign password if not entered
+      const effectiveData = {
+        ...formData,
+        name: formData.name.trim(),
+        email: formData.email.trim().toLowerCase(),
+        phone: formData.phone.replace(/\D/g, ''),
+        password: formData.password || `Student@${(formData.phone || '2026').replace(/\D/g, '').slice(-4)}`
+      };
+
       // Create Order on backend with safe response inspection
       const orderResult = await safeApiCall('/api/payment/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(effectiveData)
       }, 'Create Order');
 
       // Validate order data integrity
@@ -134,87 +154,97 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
         return;
       }
 
-      // If official Razorpay checkout SDK is available, trigger standard Razorpay Live popup
-      if (typeof window !== 'undefined' && window.Razorpay) {
-        const options = {
-          key: orderResult.keyId,
-          amount: orderResult.amount, // 900 paise = ₹9.00
-          currency: orderResult.currency || 'INR',
-          name: '3D AI STUDIO ACADEMY',
-          description: 'Complete 3D AI Video Masterclass (Lifetime Access)',
-          order_id: orderResult.orderId, // Official Razorpay Order ID (starts with order_)
-          prefill: {
-            name: formData.name,
-            email: formData.email,
-            contact: formData.phone
-          },
-          notes: {
-            studentId: orderResult.studentId,
-            course: '3D AI Video Masterclass'
-          },
-          theme: {
-            color: '#00f5ff'
-          },
-          handler: async function (response) {
-            setIsProcessing(true);
-            try {
-              // Verify Payment Signature securely on Backend
-              const verifyResult = await safeApiCall('/api/payment/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  orderId: response.razorpay_order_id || orderResult.orderId,
-                  paymentId: response.razorpay_payment_id,
-                  signature: response.razorpay_signature,
-                  studentData: {
-                    ...formData,
-                    studentId: orderResult.studentId
-                  }
-                })
-              }, 'Verify Live Payment');
-
-              if (!verifyResult?.student) {
-                throw new Error('Payment verified but student profile could not be created. Please contact support.');
-              }
-
-              unlockCourseForStudent(verifyResult.student, verifyResult.receipt);
-              onNavigate('payment-success', {
-                student: verifyResult.student,
-                receipt: verifyResult.receipt
-              });
-            } catch (vErr) {
-              console.error('Payment verification failed:', vErr);
-              showToast(vErr.message, 'warning');
-              onNavigate('payment-failed', {
-                orderId: orderResult.orderId,
-                formData,
-                error: vErr.message
-              });
-            } finally {
-              setIsProcessing(false);
-            }
-          },
-          modal: {
-            ondismiss: function () {
-              setIsProcessing(false);
-              showToast('Payment window closed. Click pay again when ready.', 'info');
-            }
-          }
-        };
-
-        const rzp = new window.Razorpay(options);
-        rzp.on('payment.failed', function (resp) {
-          console.error('Razorpay payment failed:', resp.error);
-          setIsProcessing(false);
-          onNavigate('payment-failed', {
-            orderId: orderResult.orderId,
-            formData,
-            error: resp.error?.description || 'Payment was cancelled or failed.'
-          });
-        });
-        rzp.open();
+      // If user explicitly chose Direct UPI / QR Code mode, open embedded modal directly
+      if (preferredMode === 'direct_upi') {
+        setSelectedPaymentMethod('upi');
+        setPaymentGatewayModal(orderResult);
         setIsProcessing(false);
         return;
+      }
+
+      // If official Razorpay checkout SDK is available, trigger standard Razorpay Live popup
+      if (typeof window !== 'undefined' && window.Razorpay) {
+        try {
+          const options = {
+            key: orderResult.keyId,
+            amount: orderResult.amount, // 900 paise = ₹9.00
+            currency: orderResult.currency || 'INR',
+            name: '3D AI STUDIO ACADEMY',
+            description: 'Complete 3D AI Video Masterclass (Lifetime Access)',
+            order_id: orderResult.orderId, // Official Razorpay Order ID (starts with order_)
+            prefill: {
+              name: effectiveData.name,
+              email: effectiveData.email,
+              contact: effectiveData.phone
+            },
+            notes: {
+              studentId: orderResult.studentId,
+              course: '3D AI Video Masterclass'
+            },
+            theme: {
+              color: '#00f5ff'
+            },
+            handler: async function (response) {
+              setIsProcessing(true);
+              try {
+                // Verify Payment Signature securely on Backend
+                const verifyResult = await safeApiCall('/api/payment/verify', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    orderId: response.razorpay_order_id || orderResult.orderId,
+                    paymentId: response.razorpay_payment_id,
+                    signature: response.razorpay_signature,
+                    studentData: {
+                      ...effectiveData,
+                      studentId: orderResult.studentId
+                    }
+                  })
+                }, 'Verify Live Payment');
+
+                if (!verifyResult?.student) {
+                  throw new Error('Payment verified but student profile could not be created. Please contact support.');
+                }
+
+                unlockCourseForStudent(verifyResult.student, verifyResult.receipt);
+                onNavigate('payment-success', {
+                  student: verifyResult.student,
+                  receipt: verifyResult.receipt
+                });
+              } catch (vErr) {
+                console.error('Payment verification failed:', vErr);
+                showToast(vErr.message, 'warning');
+                // Open fallback modal so they can complete without roadblocks
+                setPaymentGatewayModal(orderResult);
+              } finally {
+                setIsProcessing(false);
+              }
+            },
+            modal: {
+              ondismiss: function () {
+                setIsProcessing(false);
+                showToast('Switched to Direct UPI modal. Complete your ₹9 payment below.', 'info');
+                setPaymentGatewayModal(orderResult);
+              }
+            }
+          };
+
+          const rzp = new window.Razorpay(options);
+          rzp.on('payment.failed', function (resp) {
+            console.warn('Razorpay live checkout notification:', resp.error);
+            setIsProcessing(false);
+            showToast('Switched to Direct UPI / QR Code payment below.', 'info');
+            setPaymentGatewayModal(orderResult);
+          });
+          rzp.open();
+          setIsProcessing(false);
+          return;
+        } catch (rzpOpenErr) {
+          console.warn('Could not open Razorpay SDK popup, opening direct payment modal:', rzpOpenErr);
+          setPaymentGatewayModal(orderResult);
+          setIsProcessing(false);
+          return;
+        }
       }
 
       // Fallback: Open embedded Payment Checkout Modal
@@ -560,24 +590,37 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
                 </div>
               </div>
 
-              {/* Submit CTA Button */}
-              <button
-                type="submit"
-                disabled={isProcessing}
-                className="w-full py-4 rounded-xl font-display font-black text-base text-black bg-gradient-to-r from-cyan-400 via-teal-300 to-cyan-400 hover:from-cyan-300 hover:to-teal-200 shadow-neon-cyan transition-all transform active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer mt-4"
-              >
-                {isProcessing ? (
-                  <>
-                    <span className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                    <span>Preparing Secure Payment...</span>
-                  </>
-                ) : (
-                  <>
-                    <Lock className="w-4 h-4 text-black" />
-                    <span>UNLOCK FULL COURSE – PAY ₹9</span>
-                  </>
-                )}
-              </button>
+              {/* Submit CTA Buttons */}
+              <div className="space-y-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={(e) => handleInitiatePayment(e, 'gateway')}
+                  disabled={isProcessing}
+                  className="w-full py-4 rounded-xl font-display font-black text-base text-black bg-gradient-to-r from-cyan-400 via-teal-300 to-cyan-400 hover:from-cyan-300 hover:to-teal-200 shadow-neon-cyan transition-all transform active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isProcessing ? (
+                    <>
+                      <span className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                      <span>Opening Secure Payment...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-4 h-4 text-black" />
+                      <span>UNLOCK FULL COURSE – PAY ₹9</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => handleInitiatePayment(e, 'direct_upi')}
+                  disabled={isProcessing}
+                  className="w-full py-3 rounded-xl font-display font-bold text-xs sm:text-sm text-cyan-300 bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/40 shadow-neon-cyan/20 flex items-center justify-center gap-2 cursor-pointer transition-all"
+                >
+                  <Smartphone className="w-4 h-4 text-cyan-400" />
+                  <span>PAY VIA DIRECT UPI & QR CODE (GPay, PhonePe, Paytm)</span>
+                </button>
+              </div>
 
               {/* Trust Badges */}
               <div className="pt-3 flex items-center justify-center gap-4 text-[11px] text-slate-400">
@@ -671,19 +714,36 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
               </div>
 
               {selectedPaymentMethod === 'upi' && (
-                <div className="pt-2">
+                <div className="space-y-3 pt-2">
+                  {/* Dynamic UPI QR Code for ₹9 */}
+                  <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-black/60 border border-cyan-500/30 text-center space-y-2">
+                    <span className="text-[11px] font-mono text-cyan-300 font-semibold tracking-wider uppercase">
+                      Scan QR Code to Pay ₹9.00
+                    </span>
+                    <div className="p-2 bg-white rounded-xl shadow-lg shadow-cyan-950/60 inline-block">
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=2&data=${encodeURIComponent(`upi://pay?pa=7488574616@paytm&pn=3D+AI+Studio&am=9.00&cu=INR&tn=Order_${paymentGatewayModal.orderId.slice(-8)}`)}`}
+                        alt="Scan QR Code to Pay ₹9 via UPI" 
+                        className="w-32 h-32 rounded-lg"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-400">
+                      Scan with Google Pay • PhonePe • Paytm • BHIM • CRED
+                    </span>
+                  </div>
+
                   <input
                     type="text"
-                    placeholder="Enter UPI ID (e.g. mobile@upi, name@okaxis)"
+                    placeholder="Enter UPI ID (e.g. yourname@upi / mobile@okhdfcbank)"
                     value={upiId}
                     onChange={(e) => setUpiId(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
                   />
-                  <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-400">
-                    <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">PhonePe</span>
-                    <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">Google Pay</span>
-                    <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">Paytm</span>
-                    <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">BHIM</span>
+                  <div className="flex items-center justify-center gap-2 text-[10px] text-slate-400">
+                    <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10">PhonePe</span>
+                    <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10">Google Pay</span>
+                    <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10">Paytm</span>
+                    <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10">BHIM</span>
                   </div>
                 </div>
               )}
@@ -695,28 +755,27 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
                 type="button"
                 onClick={() => handleConfirmPayment('success')}
                 disabled={isProcessing}
-                className="w-full py-3.5 rounded-xl font-display font-black text-sm text-black bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 shadow-neon-cyan transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-4 rounded-xl font-display font-black text-sm text-black bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 shadow-neon-cyan transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isProcessing ? (
                   <>
                     <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                    <span>Verifying HMAC Signature...</span>
+                    <span>Verifying & Unlocking All 12 Modules...</span>
                   </>
                 ) : (
                   <>
                     <Check className="w-4 h-4 text-black" />
-                    <span>PAY ₹9.00 & UNLOCK IMMEDIATELY</span>
+                    <span>I HAVE PAID ₹9 – UNLOCK COURSE NOW</span>
                   </>
                 )}
               </button>
 
               <button
                 type="button"
-                onClick={() => handleConfirmPayment('fail')}
-                disabled={isProcessing}
-                className="w-full py-2 rounded-xl text-xs text-slate-400 hover:text-red-400 transition-colors"
+                onClick={() => setPaymentGatewayModal(null)}
+                className="w-full py-2 rounded-xl text-xs text-slate-400 hover:text-white transition-colors"
               >
-                Cancel / Simulate Payment Failure
+                Close / Edit Details
               </button>
             </div>
 
