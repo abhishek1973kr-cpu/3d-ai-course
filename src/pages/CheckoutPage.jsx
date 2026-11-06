@@ -68,6 +68,41 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
     }
   };
 
+  // Safe API helper to inspect response before parsing JSON and prevent syntax crashes
+  const safeApiCall = async (url, options = {}, stepName = 'API') => {
+    let res;
+    try {
+      res = await fetch(url, options);
+    } catch (networkErr) {
+      console.error(`[${stepName}] Network connection error:`, networkErr);
+      throw new Error('Unable to reach payment server. Please verify your connection or ensure dev server is running.');
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    const status = res.status;
+    const rawText = await res.text();
+
+    let data;
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch (parseErr) {
+      console.error(
+        `[${stepName}] Non-JSON response received (HTTP ${status}, Content-Type: ${contentType}):`,
+        rawText.slice(0, 300)
+      );
+      throw new Error(
+        `Server returned an invalid response (Status ${status}). Please check backend server status and retry.`
+      );
+    }
+
+    if (!res.ok) {
+      console.warn(`[${stepName}] Server returned error status ${status}:`, data);
+      throw new Error(data.error || data.message || `Payment service returned error (Status ${status}).`);
+    }
+
+    return data;
+  };
+
   // Step 1: Initiate Order Creation on Backend
   const handleInitiatePayment = async (e) => {
     e.preventDefault();
@@ -79,16 +114,16 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
     setIsProcessing(true);
 
     try {
-      const res = await fetch('/api/payment/create-order', {
+      // Create Order on backend with safe response inspection
+      const orderResult = await safeApiCall('/api/payment/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
-      });
+      }, 'Create Order');
 
-      const orderResult = await res.json();
-
-      if (!res.ok) {
-        throw new Error(orderResult.error || 'Failed to create payment order.');
+      // Validate order data integrity
+      if (!orderResult?.orderId || !orderResult?.amount) {
+        throw new Error('Payment server did not return a valid Order ID. Please retry.');
       }
 
       // If user already paid, bypass directly
@@ -123,7 +158,8 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
           handler: async function (response) {
             setIsProcessing(true);
             try {
-              const verifyRes = await fetch('/api/payment/verify', {
+              // Verify Payment Signature securely on Backend
+              const verifyResult = await safeApiCall('/api/payment/verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -135,11 +171,10 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
                     studentId: orderResult.studentId
                   }
                 })
-              });
+              }, 'Verify Live Payment');
 
-              const verifyResult = await verifyRes.json();
-              if (!verifyRes.ok) {
-                throw new Error(verifyResult.error || 'Payment signature verification failed.');
+              if (!verifyResult?.student) {
+                throw new Error('Payment verified but student profile could not be created. Please contact support.');
               }
 
               unlockCourseForStudent(verifyResult.student, verifyResult.receipt);
@@ -192,7 +227,7 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
     }
   };
 
-  // Step 2: Complete Payment & Verify Signature on Server
+  // Step 2: Complete Payment & Verify Signature on Server (Fallback Modal)
   const handleConfirmPayment = async (status = 'success') => {
     if (!paymentGatewayModal) return;
 
@@ -211,15 +246,14 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
       const paymentId = `pay_${Date.now().toString().slice(-8)}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
       // Fetch authentic HMAC signature from server endpoint
-      const sigRes = await fetch('/api/payment/test-signature', {
+      const sigData = await safeApiCall('/api/payment/test-signature', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId, paymentId })
-      });
-      const sigData = await sigRes.json();
+      }, 'Test Signature');
 
       // Verify signature on backend
-      const verifyRes = await fetch('/api/payment/verify', {
+      const verifyResult = await safeApiCall('/api/payment/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -231,13 +265,7 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
             studentId: paymentGatewayModal.studentId
           }
         })
-      });
-
-      const verifyResult = await verifyRes.json();
-
-      if (!verifyRes.ok) {
-        throw new Error(verifyResult.error || 'Payment signature verification failed.');
-      }
+      }, 'Verify Fallback Payment');
 
       // Successful verification
       setPaymentGatewayModal(null);

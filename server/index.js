@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import { 
@@ -9,6 +12,9 @@ import {
   COURSE_PAYMENT_CONFIG, 
   RAZORPAY_CONFIG 
 } from './paymentService.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -116,6 +122,22 @@ app.get('/api/admin/payments', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// 6. Safe JSON 404 handler for all /api routes
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
+});
+
+// Optional static build serving
+const distPath = path.join(__dirname, '..', 'dist');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (req, res, next) => {
+    if (req.originalUrl.startsWith('/api')) return next();
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`⚡ 3D AI Studio Payment Server running on http://127.0.0.1:${PORT}`);
