@@ -99,7 +99,90 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
         return;
       }
 
-      // Open Payment Checkout Modal
+      // If official Razorpay checkout SDK is available, trigger standard Razorpay Live popup
+      if (typeof window !== 'undefined' && window.Razorpay) {
+        const options = {
+          key: orderResult.keyId,
+          amount: orderResult.amount, // 900 paise = ₹9.00
+          currency: orderResult.currency || 'INR',
+          name: '3D AI STUDIO ACADEMY',
+          description: 'Complete 3D AI Video Masterclass (Lifetime Access)',
+          order_id: orderResult.isRazorpayOrder ? orderResult.orderId : undefined,
+          prefill: {
+            name: formData.name,
+            email: formData.email,
+            contact: formData.phone
+          },
+          notes: {
+            studentId: orderResult.studentId,
+            course: '3D AI Video Masterclass'
+          },
+          theme: {
+            color: '#00f5ff'
+          },
+          handler: async function (response) {
+            setIsProcessing(true);
+            try {
+              const verifyRes = await fetch('/api/payment/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  orderId: response.razorpay_order_id || orderResult.orderId,
+                  paymentId: response.razorpay_payment_id,
+                  signature: response.razorpay_signature,
+                  studentData: {
+                    ...formData,
+                    studentId: orderResult.studentId
+                  }
+                })
+              });
+
+              const verifyResult = await verifyRes.json();
+              if (!verifyRes.ok) {
+                throw new Error(verifyResult.error || 'Payment signature verification failed.');
+              }
+
+              unlockCourseForStudent(verifyResult.student, verifyResult.receipt);
+              onNavigate('payment-success', {
+                student: verifyResult.student,
+                receipt: verifyResult.receipt
+              });
+            } catch (vErr) {
+              console.error('Payment verification failed:', vErr);
+              showToast(vErr.message, 'warning');
+              onNavigate('payment-failed', {
+                orderId: orderResult.orderId,
+                formData,
+                error: vErr.message
+              });
+            } finally {
+              setIsProcessing(false);
+            }
+          },
+          modal: {
+            ondismiss: function () {
+              setIsProcessing(false);
+              showToast('Payment window closed. Click pay again when ready.', 'info');
+            }
+          }
+        };
+
+        const rzp = new window.Razorpay(options);
+        rzp.on('payment.failed', function (resp) {
+          console.error('Razorpay payment failed:', resp.error);
+          setIsProcessing(false);
+          onNavigate('payment-failed', {
+            orderId: orderResult.orderId,
+            formData,
+            error: resp.error?.description || 'Payment was cancelled or failed.'
+          });
+        });
+        rzp.open();
+        setIsProcessing(false);
+        return;
+      }
+
+      // Fallback: Open embedded Payment Checkout Modal
       setPaymentGatewayModal(orderResult);
     } catch (err) {
       console.error('Order creation error:', err);
