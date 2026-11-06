@@ -38,7 +38,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Gateway config endpoint
-app.get('/api/payment/config', (req, res) => {
+app.get(['/api/payment/config', '/api/config'], (req, res) => {
   res.json({
     courseId: COURSE_PAYMENT_CONFIG.courseId,
     courseTitle: COURSE_PAYMENT_CONFIG.courseTitle,
@@ -51,8 +51,9 @@ app.get('/api/payment/config', (req, res) => {
   });
 });
 
-// 1. Create Order
-app.post('/api/payment/create-order', async (req, res) => {
+// 1. Create Order (handles both /api/payment/create-order and /api/create-order)
+app.post(['/api/payment/create-order', '/api/create-order'], async (req, res) => {
+  console.log('Payment API hit');
   try {
     const result = await createPaymentOrder(req.body);
     res.json(result);
@@ -62,8 +63,8 @@ app.post('/api/payment/create-order', async (req, res) => {
   }
 });
 
-// 2. Verify Payment
-app.post('/api/payment/verify', async (req, res) => {
+// 2. Verify Payment (handles both /api/payment/verify and /api/verify)
+app.post(['/api/payment/verify', '/api/verify'], async (req, res) => {
   try {
     const { orderId, paymentId, signature, studentData } = req.body;
     const result = await verifyPaymentSignature({
@@ -79,8 +80,8 @@ app.post('/api/payment/verify', async (req, res) => {
   }
 });
 
-// 3. Test Signature Generator (for secure client-side sandbox validation testing)
-app.post('/api/payment/test-signature', (req, res) => {
+// 3. Test Signature Generator
+app.post(['/api/payment/test-signature', '/api/test-signature'], (req, res) => {
   try {
     const { orderId, paymentId } = req.body;
     if (!orderId || !paymentId) {

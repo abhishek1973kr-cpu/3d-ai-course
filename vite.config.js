@@ -49,7 +49,7 @@ function paymentApiPlugin() {
     });
 
     try {
-      if (pathname === '/api/payment/config' && req.method === 'GET') {
+      if ((pathname === '/api/payment/config' || pathname === '/api/config') && req.method === 'GET') {
         res.end(JSON.stringify({
           courseId: COURSE_PAYMENT_CONFIG.courseId,
           courseTitle: COURSE_PAYMENT_CONFIG.courseTitle,
@@ -63,21 +63,22 @@ function paymentApiPlugin() {
         return;
       }
 
-      if (pathname === '/api/payment/create-order' && req.method === 'POST') {
+      if ((pathname === '/api/payment/create-order' || pathname === '/api/create-order') && req.method === 'POST') {
+        console.log('Payment API hit');
         const body = await parseBody();
         const result = await createPaymentOrder(body);
         res.end(JSON.stringify(result));
         return;
       }
 
-      if (pathname === '/api/payment/verify' && req.method === 'POST') {
+      if ((pathname === '/api/payment/verify' || pathname === '/api/verify') && req.method === 'POST') {
         const body = await parseBody();
         const result = await verifyPaymentSignature(body);
         res.end(JSON.stringify(result));
         return;
       }
 
-      if (pathname === '/api/payment/test-signature' && req.method === 'POST') {
+      if ((pathname === '/api/payment/test-signature' || pathname === '/api/test-signature') && req.method === 'POST') {
         const body = await parseBody();
         const signature = generateTestSignature(body.orderId, body.paymentId);
         res.end(JSON.stringify({ orderId: body.orderId, paymentId: body.paymentId, signature }));

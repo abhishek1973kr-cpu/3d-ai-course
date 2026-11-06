@@ -79,14 +79,32 @@ export default function CheckoutPage({ onNavigate, initialForm = null }) {
     }
   };
 
-  // Safe API helper to inspect response before parsing JSON and prevent syntax crashes
+  // Safe API helper with automatic path fallback (supports both /api/payment/ and /api/ routes)
   const safeApiCall = async (url, options = {}, stepName = 'API') => {
     let res;
     try {
       res = await fetch(url, options);
+      // If 404, automatically try alternate routing path (/api/payment/ <-> /api/)
+      if (res.status === 404 && url.startsWith('/api/payment/')) {
+        const altUrl = url.replace('/api/payment/', '/api/');
+        try {
+          const altRes = await fetch(altUrl, options);
+          if (altRes.status !== 404) {
+            res = altRes;
+          }
+        } catch (e) {}
+      } else if (res.status === 404 && url.startsWith('/api/') && !url.startsWith('/api/payment/')) {
+        const altUrl = url.replace('/api/', '/api/payment/');
+        try {
+          const altRes = await fetch(altUrl, options);
+          if (altRes.status !== 404) {
+            res = altRes;
+          }
+        } catch (e) {}
+      }
     } catch (networkErr) {
       console.error(`[${stepName}] Network connection error:`, networkErr);
-      throw new Error('Unable to reach payment server. Please verify your connection or ensure dev server is running.');
+      throw new Error('Unable to reach payment server. Please verify your connection or ensure backend is running.');
     }
 
     const contentType = res.headers.get('content-type') || '';
